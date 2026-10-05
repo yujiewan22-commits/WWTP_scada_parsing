@@ -1,37 +1,34 @@
 from pydantic import BaseModel, Field
 
-class EvidenceItem(BaseModel):
+
+class ScadaEvidence(BaseModel):
     text: str
     region: str | None = None
-    page: int | None = None
 
-class SystemCandidate(BaseModel):
-    name: str
-    system_type: str | None = None
+
+class ScadaFacilityCandidate(BaseModel):
+    facility_code: str
+    facility_standard_name: str
+    facility_raw_name: str | None = None
     confidence: float = 0.5
-    evidence: list[EvidenceItem] = Field(default_factory=list)
+    evidence: list[ScadaEvidence] = Field(default_factory=list)
+    reason: str | None = None
 
-class FacilityUnitCandidate(BaseModel):
-    name: str
-    unit_type: str | None = None
-    quantity: int | None = None
+
+class ScadaFacilityResult(BaseModel):
+    page_title: str | None = None
+    page_category: str = "UNKNOWN"
+    facility_candidates: list[ScadaFacilityCandidate] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+class ScadaFacilityUnitResult(BaseModel):
+    facility_code: str
+    facility_standard_name: str
+    primary_unit: str
+    unit_count: int | None = None
+    layout: str | None = None
+    unit_style: str | None = None
     confidence: float = 0.5
-    evidence: list[EvidenceItem] = Field(default_factory=list)
-
-class FacilityCandidate(BaseModel):
-    name: str
-    facility_type: str | None = None
-    confidence: float = 0.5
-    process_system_name: str | None = None
-    units: list[FacilityUnitCandidate] = Field(default_factory=list)
-    evidence: list[EvidenceItem] = Field(default_factory=list)
-
-class DocumentStructureResult(BaseModel):
-    document_type: str | None = None
-    title: str | None = None
-    drawing_no: str | None = None
-    discipline: str | None = None
-    year: int | None = None
-    process_systems: list[SystemCandidate] = Field(default_factory=list)
-    facilities: list[FacilityCandidate] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
+    evidence: list[ScadaEvidence] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)

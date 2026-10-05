@@ -1,74 +1,166 @@
 from pathlib import Path
-from uuid import uuid4
-import shutil
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException
-from sqlalchemy.orm import Session
+import shutil
+import uuid
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
+
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.deps import get_db
-from app.models.document import Document
-from app.schemas.entities import DocumentOut
+from app.db.session import get_db
 
-router = APIRouter()
+from app.models import (
+    Plant,
+    ScadaDocument,
+)
 
-@router.post("/upload", response_model=DocumentOut)
-def upload_document(
-    project_id: int = Form(...),
+from app.schemas.entities import (
+    ScadaDocumentOut,
+)
+
+from app.services.image_media import (
+    SUPPORTED_EXTS,
+)
+
+
+router = APIRouter(
+    tags=["SCADA Documents"]
+)
+
+
+# ============================================================
+# 上传 SCADA 截图
+# ============================================================
+
+@router.post(
+    "/documents/upload",
+    response_model=ScadaDocumentOut,
+)
+def upload_scada(
     plant_id: int = Form(...),
-    document_type: str | None = Form(None),
-    title: str | None = Form(None),
-    drawing_no: str | None = Form(None),
-    revision: str | None = Form(None),
-    year: int | None = Form(None),
-    discipline: str | None = Form(None),
-    notes: str | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    upload_dir = Path(settings.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    plant = db.get(
+        Plant,
+        plant_id,
+    )
 
-    suffix = Path(file.filename or "").suffix
-    stored_filename = f"{uuid4().hex}{suffix}"
-    target = upload_dir / stored_filename
+    if not plant:
+        raise HTTPException(
+            status_code=400,
+            detail="plant_id 不存在",
+        )
 
-    try:
-        with target.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件保存失败: {e}")
+    suffix = Path(
+        file.filename or ""
+    ).suffix.lower()
 
-    obj = Document(
-        project_id=project_id,
+    if suffix not in SUPPORTED_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "正式版只支持 SCADA 截图图片："
+                "PNG/JPG/JPEG/WEBP/BMP，"
+                "不处理 PDF/DWG"
+            ),
+        )
+
+    upload_dir = Path(
+        settings.upload_dir
+    )
+
+    upload_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    stored_name = (
+        f"{uuid.uuid4().hex}{suffix}"
+    )
+
+    storage_path = (
+        upload_dir / stored_name
+    )
+
+    with storage_path.open("wb") as f:
+        shutil.copyfileobj(
+            file.file,
+            f,
+        )
+
+    document = ScadaDocument(
         plant_id=plant_id,
-        original_filename=file.filename or stored_filename,
-        stored_filename=stored_filename,
-        storage_path=str(target),
-        document_type=document_type,
-        title=title,
-        drawing_no=drawing_no,
-        revision=revision,
-        year=year,
-        discipline=discipline,
-        notes=notes,
+        original_filename=(
+            file.filename
+            or stored_name
+        ),
+        storage_path=str(
+            storage_path
+        ),
+        content_type=file.content_type,
+        file_size=storage_path.stat().st_size,
         ai_status="UNANALYZED",
     )
-    db.add(obj)
-    db.commit()
-    db.refresh(obj)
-    return obj
 
-@router.get("", response_model=list[DocumentOut])
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
+# ============================================================
+# 查询所有 SCADA 文档
+# ============================================================
+
+@router.get(
+    "/documents",
+    response_model=list[ScadaDocumentOut],
+)
 def list_documents(
-    plant_id: int | None = None,
-    project_id: int | None = None,
     db: Session = Depends(get_db),
 ):
-    stmt = select(Document)
-    if plant_id is not None:
-        stmt = stmt.where(Document.plant_id == plant_id)
-    if project_id is not None:
-        stmt = stmt.where(Document.project_id == project_id)
-    return db.scalars(stmt.order_by(Document.id.desc())).all()
+    return list(
+        db.scalars(
+            select(ScadaDocument)
+            .order_by(
+                ScadaDocument.id.desc()
+            )
+        )
+    )
+
+
+# ============================================================
+# 查询单个 SCADA 文档
+# ============================================================
+
+@router.get(
+    "/documents/{document_id}",
+    response_model=ScadaDocumentOut,
+)
+def get_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+):
+    document = db.get(
+        ScadaDocument,
+        document_id,
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found",
+        )
+
+    return document
